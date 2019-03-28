@@ -18,9 +18,11 @@ fn main() {
             Ok(numbers) => numbers,
             Err(e) => {
                 println!("Error: {}", e);
+                input.clear();
                 continue;
             },
         };
+        
 
         break;
     }
