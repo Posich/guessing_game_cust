@@ -1,64 +1,153 @@
 use std::io;
 use std::io::Write;
-use std::str::FromStr;
-use guessing_game_cust::parseargs;
+use std::ops::Deref;
+use std::fmt;
+use std::error::Error;
+use guessing_game_cust::guessing::*;
 
-fn main() {
+type ProgResult<T> = Result<T, ProgError>;
 
-    let mut input = String::new();
-    let mut nums: Vec<i64>;
+fn main() -> ProgResult<()> {
 
-    loop {
-        print!("Input two numbers: ");
-        io::stdout().flush().unwrap_or_else(|e| { println!("IO Error: {}", e); });
+    let mut bounds = set_bounds()?;
 
-        io::stdin().read_line(&mut input).unwrap_or_else(|e| { println!("IO Error: {}", e); 0 as usize });
+    println!("{:?}", bounds);
 
-        nums = match parseargs::parse_args(2, &input) {
-            Ok(numbers) => numbers,
-            Err(e) => {
-                println!("Error: {}", e);
-                input.clear();
-                continue;
-            },
-        };
-        
+    game_start(&mut bounds)?;
 
-        break;
-    }
-
-    println!("Numbers: {:?}", nums);
+    Ok(())
 }
 
-fn get_numbers() -> Result<(i64, i64), String> {
-    print!("Input two numbers: ");
-    io::stdout().flush().expect("IO Error");
+fn set_bounds() -> ProgResult<Bounds> {
+    let mut stderr = io::stderr();
+    let stdin = io::stdin();
+    let mut stdout = io::stdout();
 
     let mut input = String::new();
 
-    io::stdin().read_line(&mut input).expect("IO Error");
+    let mut bounds: Option<Bounds> = None;
 
-    let unparsed_nums: Vec<&str> = input.split_whitespace().collect();
+    while bounds.is_none() {
+        input.clear();
+        stdout.write(b"Input two numbers:  ")?;
+        stdout.flush()?;
 
-    if unparsed_nums.len() != 2 {
-        return Err(format!("Two arguments accepted, no more, no less.  You gave {}.", unparsed_nums.len()));
+        stdin.read_line(&mut input)?;
+
+        bounds = match input.deref().to_bounds() {
+            Ok(b) => Some(b),
+            Err(e) => {
+                writeln!(stderr, "{}", e.to_string())?;
+                None
+            },
+        };
     }
 
-    let mut retval: (i64, i64) = (0, 0);
+    Ok(bounds.unwrap())
+}
 
-    retval.0 = match i64::from_str(unparsed_nums[0]) {
-        Ok(num) => num,
-        Err(e) => {
-            return Err(format!("Could not parse {}.  Error: {:?}", unparsed_nums[0], e));
-        },
-    };
+fn game_start(bounds: &mut Bounds) -> ProgResult<()> {
+    let mut input = String::new();
 
-    retval.1 = match i64::from_str(unparsed_nums[1]) {
-        Ok(num) => num,
-        Err(e) => {
-            return Err(format!("Could not parse {}.  Error: {:?}", unparsed_nums[1], e));
-        },
-    };
+    let mut stdout = io::stdout();
+    let stdin = io::stdin();
 
-    Ok(retval)
+    println!("Pick a number between {} and {}.  Don't tell me what it is, it's none of my business.", bounds.lower(), bounds.upper());
+    stdout.write(b"Smash <Enter> when ready.")?;
+    stdout.flush()?;
+
+    stdin.read_line(&mut input)?;
+
+    input.clear(); // Don't want any input, really.
+
+    println!("\nThen let the games begin!\n");
+    
+    loop {
+        input.clear();
+
+        let guess = bounds.guess();
+        let tries = bounds.tries();
+
+        println!("[guess #{}]: {}", tries, guess);
+        println!("How did I do?");
+
+        let mut answer: Option<Reply> = None;
+
+        while answer.is_none() {
+            stdout.write(b"Pick: Too [H]igh, Too [L]ow, [C]orrect >")?;
+            stdout.flush()?;
+
+            stdin.read_line(&mut input)?;
+
+            println!();
+
+            answer = get_answer(&input, guess);
+
+            input.clear();
+        }
+
+        if let Some(Reply::Correct) = answer {
+            println!("I got it in {} tries.", tries);
+            break;
+        }
+
+        bounds.adj_bounds(answer.unwrap())?;
+    }
+
+    Ok(())
+}
+
+fn get_answer(input: &String, guess: i64) -> Option<Reply> {
+    let value = input.trim().to_lowercase().to_string();
+
+    if value == "h" {
+        return Some(Reply::TooHigh(guess));
+    } else if value == "l" {
+        return Some(Reply::TooLow(guess));
+    } else if value == "c" {
+        return Some(Reply::Correct);
+    }
+
+    None
+}
+
+#[derive(Debug)]
+enum ProgErrKind {
+    IOErr(io::Error),
+    Bounds(BoundsError),
+}
+
+#[derive(Debug)]
+struct ProgError {
+    kind: ProgErrKind,
+}
+
+impl fmt::Display for ProgError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &self.kind {
+            ProgErrKind::Bounds(e) => write!(f, "Bounds Error: {}", e.to_string()),
+            ProgErrKind::IOErr(e) => write!(f, "IO ERROR: {}", e.to_string()),
+        }
+    }
+}
+
+impl Error for ProgError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match &self.kind {
+            ProgErrKind::Bounds(err) => Some(err),
+            ProgErrKind::IOErr(err) => Some(err),
+        }
+    }
+}
+
+impl From<io::Error> for ProgError {
+    fn from(error: io::Error) -> Self {
+        ProgError { kind: ProgErrKind::IOErr(error), }
+    }
+}
+
+impl From<BoundsError> for ProgError {
+    fn from(error: BoundsError) -> Self {
+        ProgError { kind: ProgErrKind::Bounds(error), }
+    }
 }

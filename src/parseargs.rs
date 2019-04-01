@@ -2,18 +2,18 @@ use std::str::FromStr;
 use std::error::Error;
 use std::fmt;
 
-#[derive(Debug, Clone)]
-pub struct ParseArgError<T: Error> {
-    kind: ArgErrorKind<T>,
+#[derive(Debug)]
+pub struct ParseArgError {
+    kind: ArgErrorKind,
 }
 
-impl<T: Error> fmt::Display for ParseArgError<T> {
+impl fmt::Display for ParseArgError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "parse_args: {}", self.kind.to_string())
     }
 }
 
-impl<T: Error> Error for ParseArgError<T> {
+impl Error for ParseArgError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match &self.kind {
             ArgErrorKind::ExternErr((_, e)) => {
@@ -26,13 +26,13 @@ impl<T: Error> Error for ParseArgError<T> {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum ArgErrorKind<T: Error> {
+#[derive(Debug)]
+pub enum ArgErrorKind {
     ArgAmount((usize, usize,)),
-    ExternErr((String, T,)),
+    ExternErr((String, Box<Error>,)),
 }
 
-impl<T: Error> fmt::Display for ArgErrorKind<T> {
+impl fmt::Display for ArgErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ArgErrorKind::ArgAmount((expect, actual)) => {
@@ -45,8 +45,8 @@ impl<T: Error> fmt::Display for ArgErrorKind<T> {
     }
 }
 
-pub fn parse_args<T: FromStr>(argc: usize, buff: &str) -> Result<Vec<T>, ParseArgError<T::Err>> 
-where <T as std::str::FromStr>::Err: std::fmt::Debug, <T as std::str::FromStr>::Err: Error {
+pub fn parse_args<T: FromStr>(argc: usize, buff: &str) -> Result<Vec<T>, ParseArgError> 
+where <T as std::str::FromStr>::Err: std::fmt::Debug, <T as std::str::FromStr>::Err: Error + 'static {
     let unparsed_items: Vec<&str> = buff.split_whitespace().collect();
 
     if unparsed_items.len() != argc {
@@ -60,7 +60,7 @@ where <T as std::str::FromStr>::Err: std::fmt::Debug, <T as std::str::FromStr>::
             Ok(val) => val,
             Err(e) => {
                 return Err(ParseArgError { kind: ArgErrorKind::ExternErr((String::from_str(item).expect("String conversion panic!"),
-                e)) });
+                e.into())) });
             },
         });
     }
